@@ -10,12 +10,12 @@ public class Program
 {
     public const string ServiceName = "Jerico.XYZ.OpenTelemetryTest";
     public const string ServiceVersion = "1.0.0";
+    public static readonly ActivitySource ServiceActivitySource = new ActivitySource(ServiceName, ServiceVersion);
+    private static readonly HttpClient httpClient = new HttpClient();
+    private const string GetTrafficDataAction = "GetTrafficData";
 
     public static void Main(string[] args)
     {
-
-        var MyActivitySource = new ActivitySource(ServiceName);
-
         var builder = WebApplication.CreateBuilder(args);
 
         var appResourceBuilder = ResourceBuilder.CreateDefault()
@@ -29,16 +29,15 @@ public class Program
             {
                 builder
                 .AddConsoleExporter()
-                .AddSource(MyActivitySource.Name)
+                .AddSource(ServiceActivitySource.Name)
                 .SetResourceBuilder(appResourceBuilder)
                 .AddHttpClientInstrumentation()
-                .AddAspNetCoreInstrumentation()
-                .AddSqlClientInstrumentation();
+                .AddAspNetCoreInstrumentation();
             })
             .WithMetrics(builder =>
             {
                 builder
-                .AddConsoleExporter()
+                // .AddConsoleExporter()
                 .AddMeter(meter.Name)
                 .SetResourceBuilder(appResourceBuilder)
                 .AddAspNetCoreInstrumentation()
@@ -48,18 +47,20 @@ public class Program
 
         var app = builder.Build();
 
-        app.MapGet("/hello", () =>
+        app.MapGet("/", async () =>
         {
-            // Track work inside of the request
-            using var activity = MyActivitySource.StartActivity("SayHello");
-            activity?.SetTag("foo", 1);
-            activity?.SetTag("bar", "Hello, World!");
-            activity?.SetTag("baz", new int[] { 1, 2, 3 });
+            var timeInterval = "Daily";
+            var intervals = 7;
+            using var serverActivity = ServiceActivitySource.StartActivity(GetTrafficDataAction, ActivityKind.Server);
+            serverActivity?.SetTag("timeInterval", timeInterval);
+            serverActivity?.SetTag("intervals", intervals);
 
-            // Up a counter for each request
+            using var clientActivity = ServiceActivitySource.StartActivity(GetTrafficDataAction, ActivityKind.Client);
+            var content = await httpClient.GetStringAsync("https://jerico.xyz/api/traffic?timeInterval=Daily&intervals=7");
+            clientActivity?.SetTag("responseData", content);
             counter.Add(1);
 
-            return "Hello, World!";
+            return content;
         });
 
         app.Run();
